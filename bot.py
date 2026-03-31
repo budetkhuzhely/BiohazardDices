@@ -204,85 +204,51 @@ def handle_match(match, action):
     return None, None
 
 def process_message(text):
-    text = text.lower().strip()
+    """Обрабатывает сообщение, отделяя подписи от команд"""
     
+    # Если сообщение не начинается с ( — игнорируем
     if not text.startswith('('):
         return None
     
-    without_bracket = text[1:]
+    # Разделяем сообщение на строки и обрабатываем каждую
+    lines = text.split('\n')
+    all_results = []
+    total_sum = 0
     
-    if without_bracket.count('(') > 0:
-        parts = []
-        current = ""
-        depth = 0
-        for char in without_bracket:
-            if char == '(':
-                if depth == 0 and current:
-                    parts.append(current)
-                    current = ""
-                depth += 1
-                current += char
-            elif char == ')':
-                depth -= 1
-                current += char
-            else:
-                current += char
-        if current:
-            parts.append(current)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
         
-        results = []
-        total_sum = 0
-        
-        for part in parts:
-            part = part.strip()
-            if not part:
-                continue
-            
-            if part.startswith('(') and part.endswith(')'):
-                cmd = part[1:-1]
-            else:
-                cmd = part
-            
-            if ' ' in cmd:
-                cmd_part, label = cmd.split(' ', 1)
-            else:
-                cmd_part = cmd
-                label = None
-            
-            roll_result, message = parse_and_roll(cmd_part)
-            if message:
-                if label:
-                    message = f"{label}: {message}"
-                results.append(message)
-                if roll_result is not None:
-                    total_sum += roll_result
-            else:
-                results.append(f"❌ Не понял: ({cmd_part})")
-        
-        if results:
-            final = "\n".join(results)
-            if len(results) > 1:
-                final += f"\n\n📊 Сумма: {total_sum}"
-            return final
-        return None
-    
-    else:
-        if without_bracket.startswith('(') and without_bracket.endswith(')'):
-            cmd = without_bracket[1:-1]
+        # Убираем открывающую скобку в начале, если есть
+        if line.startswith('('):
+            line_without_bracket = line[1:]
         else:
-            cmd = without_bracket
+            line_without_bracket = line
         
-        if ' ' in cmd:
-            cmd_part, label = cmd.split(' ', 1)
+        # Отделяем подпись (всё после первого пробела)
+        if ' ' in line_without_bracket:
+            cmd_part, label = line_without_bracket.split(' ', 1)
         else:
-            cmd_part = cmd
+            cmd_part = line_without_bracket
             label = None
         
         roll_result, message = parse_and_roll(cmd_part)
         if message:
             if label:
-                return f"{label}: {message}"
-            return message
+                # Добавляем пробел перед двоеточием
+                message = f"{label} : {message}"
+            all_results.append(message)
+            if roll_result is not None:
+                total_sum += roll_result
+        else:
+            all_results.append(f"❌ Не понял: ({cmd_part})")
+    
+    if all_results:
+        final = "\n".join(all_results)
+        if len(all_results) > 1:
+            final += f"\n\n📊 Сумма: {total_sum}"
+        return final
     
     return None
 
@@ -299,13 +265,16 @@ if __name__ == "__main__":
         for event in longpoll.listen():
             if event.type == VkBotEventType.MESSAGE_NEW:
                 try:
-                    msg_text = event.object.message.get('text', '').lower().strip()
+                    msg_text = event.object.message.get('text', '')
                     peer_id = event.object.message.get('peer_id')
                     
                     if not msg_text:
                         continue
                     
-                    if msg_text == "(помощь" or msg_text == "(help":
+                    # Приводим к нижнему регистру только для проверки команд помощи
+                    msg_text_lower = msg_text.lower().strip()
+                    
+                    if msg_text_lower == "(помощь" or msg_text_lower == "(help":
                         help_text = """📚 Доступные команды (через скобки):
 
 Обычные броски:
@@ -327,8 +296,10 @@ if __name__ == "__main__":
 (д-2 ловкость
 (дпре сила
 
-Пулл команд:
-(д (д-2 (дпре
+Пулл команд (каждая команда с новой строки):
+(д бросок
+(д бросок
+(д бросок
 
 (помощь — это сообщение"""
                         vk_session.method("messages.send", {
